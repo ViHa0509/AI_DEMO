@@ -9,3 +9,6 @@ langgraph
 sentence_transformers
 pydantic
 langchain_core
+transformers
+langchain
+openai
