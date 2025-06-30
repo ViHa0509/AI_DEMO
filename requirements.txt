@@ -1,0 +1,11 @@
+openai 
+pandas 
+sqlalchemy 
+psycopg2-binary 
+pgvector 
+openpyxl
+langchain_community
+langgraph
+sentence_transformers
+pydantic
+langchain_core
