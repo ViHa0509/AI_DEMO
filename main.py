@@ -29,7 +29,7 @@ encode_kwargs = {'normalize_embeddings': True}
 TABLE_NAME = "langchain_pg_embedding"
 CONNECTION_STRING = os.getenv("PGVECTOR_CONN")
 
-with open('prompt.yaml', 'r') as file:
+with open('vectordb/prompt.yaml', 'r') as file:
     global prompt_data
     prompt_data = yaml.safe_load(file)
 
