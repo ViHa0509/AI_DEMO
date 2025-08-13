@@ -18,6 +18,7 @@ import os
 import json
 import yaml
 import logging
+from langsmith import traceable
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,7 +30,7 @@ encode_kwargs = {'normalize_embeddings': True}
 TABLE_NAME = "langchain_pg_embedding"
 CONNECTION_STRING = os.getenv("PGVECTOR_CONN")
 
-with open('vectordb/prompt.yaml', 'r') as file:
+with open('prompt.yaml', 'r') as file:
     global prompt_data
     prompt_data = yaml.safe_load(file)
 
@@ -132,7 +133,7 @@ def get_messages(state: State, prompt: str, data: list[dict[str, str]] = None):
 
     return [{"role": "system", "content": system_prompt}] + history
 
-
+@traceable(name="LLM Answer Node")
 def adviser_agent(state: State):
     last_message = state["messages"][-1]
     data = vector_lookup_function(last_message.content)
@@ -140,6 +141,7 @@ def adviser_agent(state: State):
     reply = llm.invoke(messages)
     return {"messages": [{"role": "assistant", "content": reply.content}]}
 
+@traceable(name="LLM Answer Node")
 def conversation_agent(state: State):
     messages = get_messages(state=state, prompt="small_talk_prompt", data=None)
     reply = llm.invoke(messages)
@@ -151,6 +153,7 @@ def format_tavily_markdown(results: list[dict]) -> str:
         output.append(f"- [{r['title']}]({r['url']})\n  \n  {r['content'][:200]}...\n")
     return "\n".join(output)
 
+@traceable(name="LLM Answer Node")
 def tavily_search(state: State):
     #messages = get_messages(state=state, prompt="tavily_search", data=None)
     query = state["messages"][-1].content
@@ -179,7 +182,7 @@ graph_builder.add_edge("conversation", END)
 graph_builder.add_edge("search", END)
 graph_builder.add_edge("adviser", END)
 graph = graph_builder.compile()
-is_display = False
+is_display = True
 
 if is_display:
     from IPython.display import Image, display

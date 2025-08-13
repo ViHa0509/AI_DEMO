@@ -12,3 +12,4 @@ langchain_core
 transformers
 langchain
 openai
+langsmith
