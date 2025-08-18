@@ -21,6 +21,7 @@ from langsmith import traceable
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
+from scan_url import VirusTotalChecker
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -247,6 +248,12 @@ def crawl_data_from_web(state: State):
     print(f"Last message content: {last_message.content}")
     webUrl = re.search(r"https?://[^\s '\"`]+", last_message.content).group(0)
     print(f"web url: {webUrl}")
+    
+    is_safe_link = VirusTotalChecker.is_url_safe(webUrl)
+    if not is_safe_link:
+        logger.error(f"Unsafe URL detected: {webUrl}")
+        return {"messages": [{"role": "assistant", "content": "The provided URL is unsafe. Please provide a different URL."}]}
+    
     response = requests.get(webUrl)
     print(response.status_code)
 
