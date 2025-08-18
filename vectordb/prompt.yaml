@@ -32,18 +32,14 @@ system_prompt: |
 
   Now, respond to the user's query: '{message}' using the suggested tool: '{tool_hint}' and the provided chat history: '{chat_history}'.
 
-skill_prompt: |
-  Please provide details for a learning path to be added to a vector store database, following the structure of the provided data example. Ensure the information is accurate and complete, replacing "nan" with relevant values where applicable. If a field is not applicable, explicitly state "Not Applicable" instead of "nan". The goal is to collect data about a specific skill, its associated course, and the learner's progress or goals.
+skill_prompt_1: |
+  Please provide details for a learning path to be added to a vector store database, following the structure of the provided data example. Ensure the information is accurate and complete.
+  The goal is to collect data about a specific skill, its associated course, and the learner's progress or goals.
   Required Fields:
-      notes: Any additional comments or notes about the learning path (e.g., specific focus areas, challenges, or context). If none, state "Not Applicable".
       sheet: The category or domain of the skill (e.g., "Data", "RPA", "Web Development").
       skill: The specific skill and its expertise level (e.g., "Python - Expert", "JavaScript - Beginner").
       course_link: A URL to the course or resource for learning the skill. If none, state "Not Applicable".
-      target_date: The target date for completing the learning path (format: YYYY-MM-DD). If not set, state "Not Applicable".
-      competency_area: The broader area or domain the skill belongs to (e.g., "RPA by Python", "Machine Learning"). If none, state "Not Applicable".
-      completion_date: The date the learning path was completed (format: YYYY-MM-DD). If not completed, state "Not Applicable".
-      proficiency_level: The proficiency level for the skill (e.g., "Level 1" for Beginner, "Level 4" for Expert).
-  Data Input Format: {data}
+  Data Input: {data}
   Instructions:
       Provide the data in JSON format, ensuring all fields are included.
       If this is an update to an existing learning path, specify which skill and sheet it replaces or updates.
@@ -52,9 +48,153 @@ skill_prompt: |
   Request:
   Please submit the learning path data now.
 
+skill_prompt: |
+  Example Input Data:
+  [{{
+    "notes": "nan",
+    "sheet": "RPA",
+    "skill": "A360 Development  - Beginner",
+    "course_link": "https://upskill.automationanywhere.com/",
+    "target_date": "nan",
+    "competency_area": "RPA by Automation Anywhere A360",
+    "completion_date": "nan",
+    "proficiency_level": "Level 1"
+  }},
+  {{
+    "notes": "none",
+    "sheet": "AI",
+    "skill": "Machine Learning - Intermediate",
+    "course_link": "https://upskill.datascience.com/",
+    "target_date": "2024-01-15",
+    "competency_area": "AI by Data Science",
+    "completion_date": "2023-11-01",
+    "proficiency_level": "Level 2"
+  }}
+  ]
+
+  Expected Output:
+  - RPA → A360 Development - Beginner
+    Description: This refers to the Robotic Process Automation domain.
+    Skill: A360 Development - Beginner → Focused on getting started with Automation Anywhere A360 platform for RPA development.
+      → This indicates an introductory understanding of AI concepts. It's foundational and ideal for beginners.
+    Course Link: https://upskill.automationanywhere.com/.
+    
+  - AI → Machine Learning - Intermediate
+  Description: This refers to the Artificial Intelligence domain.
+  Skill: Machine Learning - Intermediate → Focused on advancing skills in machine learning on a data science platform.
+    → This demonstrates an intermediate understanding of machine learning concepts. Ideal for those looking to build upon foundational knowledge.
+  Course Link: https://upskill.datascience.com/.
+
+  Instructions:
+  - Process each record in the list individually and generate the expected output as demonstrated.
+
+  Data Input:
+  {data}
+  
 small_talk_prompt : |
   You are a friendly conversational AI.
-  Provide a concise, natural response to the user’s query.
+  Provide a concise, natural response to the user query.
   Focus on small talk or general questions unrelated to skills or learning paths.
   Keep the response short and engaging.
-  Query: {query}
+
+classify_prompt_1: |
+  You are a helpful assistant. Classify the user message...
+  - 'adviser': if user ask for learning skills, career paths, or courses related IT background.
+  - 'conversation': if user ask for general questions, lifestyle, trips, or facts.
+  - 'search': if user ask for something which is needed 'up to date' response.
+
+classify_prompt_2 : |
+  You are a message classification assistant. Your task is to categorize a user's message into one of the following predefined categories based on the user's intent.
+
+  **Categories:**
+  1. **adviser**: The user wants to learn, get guidance, or receive educational content on a topic. Examples include "how to," "I want to learn," "tutorial," "roadmap," or anything related to skills, education, or career development.
+  2. **search**: The user is looking for real-time or factual information. Examples include "latest news," "current weather," "stock price," or "what happened today."
+  3. **crawl**: The user is asking for a website or web link to be processed, analyzed, or scraped. Examples include "crawl this website," "analyze this URL," or "process this web link."
+  4. **conversation**: The user's message does not fit into any of the other categories. This includes casual conversation, greetings, or unclear requests.
+
+  **Instructions:**
+  - Analyze the user's message and determine the most relevant category.
+  - Respond with only the name of the category, exactly as it is listed above (e.g., "adviser", "search", "crawl", "conversation").
+  - Do not provide any additional text, explanations, or conversational filler.
+
+  **User Message:**
+  {user_message}
+
+  Respond with only: adviser, conversation, crawl, or search
+
+classify_prompt: |
+  You are a helpful assistant designed to classify user messages into one of three categories. Your classification should be based on the user's intent.
+
+  **Categories:**
+
+  1. **adviser:** The user is seeking guidance on learning skills, career paths, courses, or educational content, especially in IT/technology fields. Examples:
+     - "I want to learn Python"
+     - "How do I become a data scientist?"
+     - "What skills do I need for web development?"
+     - "I want to learn AI and machine learning"
+     - "Can you recommend programming courses?"
+     - "What's the best way to learn cybersecurity?"
+
+  2. **conversation:** The user is asking general questions, making small talk, or discussing topics like lifestyle, travel, or general facts that don't require real-time information. Examples:
+     - "How are you today?"
+     - "Tell me a joke"
+     - "What's your favorite color?"
+     - "How was your weekend?"
+
+  3. **search:** The user's query requires a response based on up-to-date or real-time information (e.g., current news, weather, stock prices, recent events). Examples:
+     - "What's the weather today?"
+     - "Latest news about AI"
+     - "Current stock price of Apple"
+     - "Recent developments in technology"
+
+  **Important Guidelines:**
+  - Learning and skill-related queries should ALWAYS be classified as "adviser"
+  - Only classify as "search" if the query explicitly needs current/recent information
+  - When in doubt between categories, prefer "adviser" for any learning-related content
+
+  Respond with ONLY a JSON object: {"message_type": "adviser" | "conversation" | "search"}
+
+tavily_search: |
+  You are a helpful assistant, alway answer an up to date reponse...
+
+extraction_prompt: |
+  Extract structured information from the following HTML source and return it as a JSON object in the format below:
+
+  {
+    "id": [Unique numeric ID if available; otherwise, generate a hash from the URL or title],
+    "title": "[Original English title]",
+    "title_vi": "[Title translated to fluent Vietnamese]",
+    "summary_en": "[English summary or content if available]",
+    "summary_vi": "[Vietnamese translation of the summary]",
+    "tags_en": ["tag1", "tag2", "tag3"],
+    "tags_vi": ["Translated tag1", "Translated tag2", "Translated tag3"],
+    "by": "[Author's name]",
+    "score": [Numeric score if available; otherwise, default to 100],
+    "url": "[Original source URL]"
+  }
+
+  Instructions:
+  - Translate `title` and `summary_en` to fluent, formal Vietnamese suitable for news. Avoid literal translation.
+  - If tags are present in the HTML (e.g., in meta tags, labels, or categories), extract them to `tags_en` and translate them to `tags_vi`.
+  - Clean all text of HTML tags and whitespace.
+  - Use intelligent defaults when data is missing.
+  - Return **only** a valid JSON object. Do **not** include explanations, comments, or formatting like markdown.
+
+  HTML source content:
+  {data}
+
+
+extract_data_1: |
+  I need to generate a JSON object representing a cybersecurity news article. The article should be about a new vulnerability and the botnets exploiting it. 
+
+  The JSON object should have the following structure:
+  - `id`: A URL to a fake news article.
+  - `title`: A catchy headline about the vulnerability and exploit.
+  - `summary_en`: A paragraph-long summary of the news. It should mention the vulnerability, the CVSS score, the type of exploit (e.g., remote code execution), the affected software and versions, the type of botnet, and the kind of attacks being launched (e.g., DDoS).
+  - `tags_en`: A list of relevant keywords in English, such as "botnet," "vulnerability," "DDoS," "malware," "cybersecurity," and names of companies or technologies.
+  - `by`: A fictional author's name.
+  - `url`: A URL that is the same as the `id`.
+
+  Please generate one such JSON object.
+  Data:
+  {data}
