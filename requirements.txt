@@ -1,15 +1,30 @@
-openai 
-pandas 
-sqlalchemy 
-psycopg2-binary 
-pgvector 
-openpyxl
-langchain_community
-langgraph
-sentence_transformers
-pydantic
-langchain_core
-transformers
-langchain
-openai
-langsmith
+# Core: LangGraph + LLM
+langgraph>=0.2
+langchain>=0.3
+langchain-core>=0.3
+langchain-community>=0.3
+langchain-openai>=0.2
+langsmith>=0.1
+
+# Vector store (PGVector) + embeddings
+langchain-huggingface>=0.1
+sentence-transformers>=3.0
+psycopg2-binary>=2.9
+pgvector>=0.3
+sqlalchemy>=2.0
+
+# Tools
+tavily-python>=0.5
+requests>=2.31
+beautifulsoup4>=4.12
+
+# Web UI backend
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Utils
+python-dotenv>=1.0
+pyyaml>=6.0
+pydantic>=2.0
+pandas>=2.0
+openpyxl>=3.1
