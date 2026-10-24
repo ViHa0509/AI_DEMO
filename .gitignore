@@ -11,3 +11,5 @@ __pycache__/
 
 # Generated
 graph.png
+.pytest_cache/
+.cache/

@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+venv
+.env
+.cache
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+tests
+docs
+graph.png
+vectordb/docker-compose.yml
