@@ -108,6 +108,41 @@ Smoke test đã xác nhận: image build được (kể cả tải model embeddi
 
 Windows Application Control chặn DLL của `xxhash`, `ormsgpack`, `jiter`, `msgpack` (và có thể cả torch), nên LangGraph không chạy trực tiếp được trên máy này. Khi test, mình dùng bản thay thế Python thuần đặt trong thư mục tạm, **không nằm trong repo**. Trong Docker/HF Spaces (Linux) không gặp vấn đề này.
 
+## Phần 5: Cài môi trường Docker + WSL trên máy local
+
+Đã cài (qua một cửa sổ PowerShell admin, bạn bấm Yes ở UAC):
+
+| Thành phần | Trạng thái |
+|---|---|
+| WSL 3.0.3 (kernel 6.18) | ✅ Đã cài |
+| Tính năng Windows `VirtualMachinePlatform` | ✅ Đã bật, **cần khởi động lại máy** |
+| Docker Desktop 4.96.3 | ✅ Đã cài (`C:\Program Files\Docker\Docker`) |
+| User `Petrus` trong nhóm `docker-users` | ✅ |
+| Ubuntu 22.04 | ⏳ Cài sau khi khởi động lại (xem bên dưới) |
+
+**Sau khi khởi động lại máy:**
+
+1. Mở PowerShell (không cần admin) và chạy:
+   ```powershell
+   wsl --install -d Ubuntu-22.04
+   ```
+   Cửa sổ Ubuntu sẽ hỏi tạo **username và password Linux** (tự đặt, không cần trùng với Windows).
+2. Mở **Docker Desktop** từ Start menu, chấp nhận điều khoản (miễn phí cho dự án cá nhân), chọn backend **WSL 2**.
+3. Trong Docker Desktop → **Settings → Resources → WSL integration**, bật cho **Ubuntu-22.04**.
+4. Kiểm tra:
+   ```powershell
+   wsl -l -v                 # Ubuntu-22.04 phải ở VERSION 2
+   docker run --rm hello-world
+   ```
+5. Chạy app bằng Docker (từ thư mục dự án):
+   ```powershell
+   docker build -t ai-assistant .
+   docker run --rm -p 7860:7860 --env-file .env ai-assistant   # mở http://localhost:7860
+   ```
+   Chạy trong Docker (Linux) thì không còn lỗi DLL bị Application Control chặn.
+
+Lưu ý: nếu Application Control chặn Docker Desktop hoặc WSL khi khởi động, cần nhờ IT cho phép.
+
 ## Bước tiếp theo
 
 1. Đổi 3 key bị lộ.
