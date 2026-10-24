@@ -37,6 +37,13 @@ class Settings:
     require_url_scan: bool = _bool("REQUIRE_URL_SCAN", False)
     http_timeout: int = int(os.getenv("HTTP_TIMEOUT", "15"))
 
+    # Web server / access control (set APP_PASSWORD on any public deployment)
+    host: str = os.getenv("HOST", "127.0.0.1")
+    port: int = int(os.getenv("PORT", "8000"))
+    app_password: str | None = os.getenv("APP_PASSWORD") or None
+    app_secret: str | None = os.getenv("APP_SECRET") or None  # token signing key; random if empty
+    rate_limit_per_minute: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "20"))  # chat requests per client, 0 = off
+
     prompt_file: Path = ROOT_DIR / "app" / "prompt.yaml"
 
 

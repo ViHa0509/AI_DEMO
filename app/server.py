@@ -5,28 +5,79 @@ Open: http://localhost:8000
 """
 import json
 import logging
-import os
+import threading
 import uuid
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from pydantic import BaseModel, Field
 
 from app.config import ROOT_DIR, settings
 from app.graph import AGENT_NODES, graph
+from app.retriever import get_retriever, knowledge_backend
+from app.security import AuthManager, RateLimiter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI Learning Assistant", version="1.0.0")
+PUBLIC_API_PATHS = {"/api/health", "/api/login"}
+
+auth = AuthManager(settings.app_password, settings.app_secret)
+chat_limiter = RateLimiter(settings.rate_limit_per_minute)
+login_limiter = RateLimiter(10)  # slows down password guessing
+
+
+def _warm_up_knowledge_base() -> None:
+    try:
+        get_retriever()
+        logger.info("Knowledge base ready (%s)", knowledge_backend())
+    except Exception as e:
+        logger.warning("Knowledge base warm-up failed: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Load the embedding model in the background so the first adviser question is fast
+    threading.Thread(target=_warm_up_knowledge_base, daemon=True).start()
+    if not auth.enabled:
+        logger.warning("APP_PASSWORD is not set: the chat API is open to anyone who can reach it")
+    yield
+
+
+app = FastAPI(title="AI Learning Assistant", version="1.1.0", lifespan=lifespan)
 
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
     thread_id: str = Field(default_factory=lambda: uuid.uuid4().hex, max_length=100)
+
+
+class LoginRequest(BaseModel):
+    password: str = Field(..., max_length=200)
+
+
+def _client_key(request: Request) -> str:
+    # Behind a reverse proxy (e.g. Hugging Face Spaces) the right-most X-Forwarded-For entry
+    # is the address the proxy itself saw, so it cannot be spoofed by the client.
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path not in PUBLIC_API_PATHS:
+        header = request.headers.get("authorization", "")
+        token = header[7:] if header.lower().startswith("bearer ") else None
+        if not auth.verify_token(token):
+            return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    return await call_next(request)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -66,8 +117,10 @@ def health() -> dict:
     return {
         "status": "ok",
         "model": settings.model_name,
+        "auth_required": auth.enabled,
+        "knowledge_backend": knowledge_backend(),
         "features": {
-            "adviser": bool(settings.pgvector_conn),
+            "adviser": True,
             "search": bool(settings.tavily_api_key),
             "crawl": True,
             "url_scan": bool(settings.virustotal_api_key),
@@ -75,10 +128,23 @@ def health() -> dict:
     }
 
 
+@app.post("/api/login")
+def login(body: LoginRequest, request: Request):
+    if not auth.enabled:
+        return {"token": None, "expires_in": None}
+    if not login_limiter.allow(_client_key(request)):
+        return JSONResponse({"detail": "Too many attempts, try again in a minute"}, status_code=429)
+    if not auth.check_password(body.password):
+        return JSONResponse({"detail": "Wrong password"}, status_code=401)
+    return {"token": auth.issue_token(), "expires_in": auth.ttl_seconds}
+
+
 @app.post("/api/chat")
-def chat(request: ChatRequest) -> StreamingResponse:
+def chat(body: ChatRequest, request: Request):
+    if not chat_limiter.allow(_client_key(request)):
+        return JSONResponse({"detail": "Rate limit reached, please wait a minute"}, status_code=429)
     return StreamingResponse(
-        _chat_events(request),
+        _chat_events(body),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -110,4 +176,4 @@ app.mount("/", StaticFiles(directory=ROOT_DIR / "web", html=True), name="web")
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.server:app", host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", "8000")))
+    uvicorn.run("app.server:app", host=settings.host, port=settings.port)

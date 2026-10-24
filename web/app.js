@@ -14,6 +14,7 @@ const ROUTES = {
 const FEATURE_LABELS = { adviser: "Knowledge base", search: "Web search", crawl: "Crawler", url_scan: "URL scan" };
 const STORAGE_KEY = "lla.threads.v1";
 const ACTIVE_KEY = "lla.active.v1";
+const TOKEN_KEY = "lla.token.v1";
 const MAX_THREADS = 50;
 const LOGO = '<svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 8-4v6h2V8L12 3Zm-6 9.2V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.8l-6 3-6-3Z"/></svg>';
 const TRASH = '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
@@ -29,6 +30,8 @@ const el = {
   composer: $("#composer"), input: $("#input"), sendBtn: $("#sendBtn"),
   statusDot: $("#status .dot"), statusModel: $("#statusModel"), features: $("#features"),
   template: $("#messageTemplate"),
+  login: $("#login"), loginForm: $("#loginForm"), loginPassword: $("#loginPassword"),
+  loginError: $("#loginError"), loginBtn: $("#loginBtn"),
 };
 
 /* ===== Storage (per-browser convenience; the app works without it) ===== */
@@ -46,6 +49,7 @@ const state = {
   threads: store.get(STORAGE_KEY, []),
   activeId: store.get(ACTIVE_KEY, null),
   controller: null, // AbortController of the in-flight request
+  token: store.get(TOKEN_KEY, null), // bearer token when the server requires a password
 };
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()).replace(/-/g, "");
@@ -57,6 +61,51 @@ function persist() {
   state.threads = state.threads.slice(0, MAX_THREADS);
   store.set(STORAGE_KEY, state.threads);
   store.set(ACTIVE_KEY, state.activeId);
+}
+
+/* ===== API ===== */
+async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  const res = await fetch(path, { ...options, headers });
+  if (res.status === 401) showLogin();
+  return res;
+}
+
+async function errorDetail(res) {
+  try { return (await res.json()).detail || `HTTP ${res.status}`; } catch (_) { return `HTTP ${res.status}`; }
+}
+
+/* ===== Login ===== */
+function showLogin(message = "") {
+  state.token = null;
+  store.set(TOKEN_KEY, null);
+  el.loginError.textContent = message;
+  el.login.hidden = false;
+  el.loginPassword.focus();
+}
+
+async function submitLogin(e) {
+  e.preventDefault();
+  el.loginBtn.disabled = true;
+  el.loginError.textContent = "";
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: el.loginPassword.value }),
+    });
+    if (!res.ok) { el.loginError.textContent = await errorDetail(res); return; }
+    state.token = (await res.json()).token;
+    store.set(TOKEN_KEY, state.token);
+    el.loginPassword.value = "";
+    el.login.hidden = true;
+    el.input.focus();
+  } catch (_) {
+    el.loginError.textContent = "Could not reach the server.";
+  } finally {
+    el.loginBtn.disabled = false;
+  }
 }
 
 /* ===== Markdown ===== */
@@ -248,7 +297,7 @@ function deleteThread(id) {
   if (busy() && id === state.activeId) return;
   const thread = state.threads.find((t) => t.id === id);
   if (!thread || !confirm(`Delete "${thread.title}"?`)) return;
-  fetch(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+  api(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
   state.threads = state.threads.filter((t) => t.id !== id);
   if (state.activeId === id) state.activeId = null;
   persist();
@@ -321,12 +370,16 @@ async function sendMessage(text) {
 
   setBusy(new AbortController());
   try {
-    const res = await fetch("/api/chat", {
+    const res = await api("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, thread_id: thread.id }),
       signal: state.controller.signal,
     });
+    if (res.status === 401 || res.status === 429) {
+      const detail = res.status === 401 ? "Please log in, then send your message again." : await errorDetail(res);
+      throw Object.assign(new Error(detail), { userFacing: true });
+    }
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
     const reader = res.body.getReader();
@@ -357,8 +410,10 @@ async function sendMessage(text) {
       reply.content = (streamed || reply.content) + "\n\n*— stopped —*";
     } else {
       reply.error = true;
-      reply.content = "Could not reach the server. Make sure the backend is running, then try again.";
-      console.error(err);
+      reply.content = err.userFacing
+        ? err.message
+        : "Could not reach the server. Make sure the backend is running, then try again.";
+      if (!err.userFacing) console.error(err);
     }
   } finally {
     if (frame) cancelAnimationFrame(frame);
@@ -406,6 +461,7 @@ async function loadHealth() {
     const res = await fetch("/api/health");
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
+    if (data.auth_required && !state.token) showLogin();
     el.statusDot.dataset.state = "ok";
     el.statusModel.textContent = data.model.split(/[\\/]/).pop();
     el.statusModel.title = data.model;
@@ -456,6 +512,7 @@ el.openSidebar.addEventListener("click", openSidebar);
 el.closeSidebar.addEventListener("click", closeSidebar);
 el.scrim.addEventListener("click", closeSidebar);
 el.themeToggle.addEventListener("click", toggleTheme);
+el.loginForm.addEventListener("submit", submitLogin);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeSidebar();
 });
