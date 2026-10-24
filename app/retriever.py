@@ -1,32 +1,31 @@
-"""PGVector retriever over the learning-path knowledge base."""
+"""Retriever over the learning-path knowledge base (PGVector if configured, otherwise in-memory)."""
 import json
 import logging
 from functools import lru_cache
 
 from app.config import settings
+from app.knowledge_base import get_embedder, get_in_memory_store
 
 logger = logging.getLogger(__name__)
 
 
+def knowledge_backend() -> str:
+    return "pgvector" if settings.pgvector_conn else "in-memory"
+
+
 @lru_cache(maxsize=1)
 def get_retriever():
-    # Heavy imports (torch / sentence-transformers) are deferred until first use
-    from langchain_community.vectorstores import PGVector
-    from langchain_huggingface import HuggingFaceEmbeddings
+    if settings.pgvector_conn:
+        from langchain_community.vectorstores import PGVector
 
-    if not settings.pgvector_conn:
-        raise RuntimeError("PGVECTOR_CONN is not configured")
+        vectorstore = PGVector(
+            collection_name=settings.collection_name,
+            connection_string=settings.pgvector_conn,
+            embedding_function=get_embedder(),
+        )
+    else:
+        vectorstore = get_in_memory_store()
 
-    embedder = HuggingFaceEmbeddings(
-        model_name=settings.embedding_model,
-        model_kwargs={"device": "cpu"},
-        encode_kwargs={"normalize_embeddings": True},
-    )
-    vectorstore = PGVector(
-        collection_name=settings.collection_name,
-        connection_string=settings.pgvector_conn,
-        embedding_function=embedder,
-    )
     if settings.retriever_score_threshold > 0:
         return vectorstore.as_retriever(
             search_type="similarity_score_threshold",
