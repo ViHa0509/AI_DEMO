@@ -18,16 +18,21 @@ app/
   prompts.py       loads prompt.yaml
   prompt.yaml      all prompt templates
   llm.py           shared ChatOpenAI client (any OpenAI-compatible endpoint)
-  retriever.py     PGVector retriever (learning paths)
+  knowledge_base.py  Excel loader, embeddings, in-memory vector store (no DB needed)
+  retriever.py     retriever: PGVector if configured, otherwise in-memory
   crawler.py       page fetching + article extraction (with SSRF protection)
   url_scanner.py   VirusTotal URL safety check
+  security.py      password login (signed tokens) and rate limiting
   graph.py         LangGraph state, agents and workflow
   server.py        FastAPI backend: streaming chat API + serves the web UI
 web/               web UI (HTML/CSS/JS, no build step)
+tests/             pytest suite (no network, fake LLM)
+deploy/            Hugging Face Spaces deploy script
+.github/workflows/ CI/CD: tests → Docker smoke test → deploy
+Dockerfile
 vectordb/
-  docker-compose.yml   Postgres + pgvector + pgAdmin
+  docker-compose.yml   Postgres + pgvector + pgAdmin (optional)
   data/LearningPath.xlsx
-  embedding/embedder.py
   vectorstore/store.py  ingests the Excel file into PGVector
 main.py            terminal chat
 ```
@@ -44,11 +49,9 @@ pip install -r requirements.txt
 copy .env.example .env            # macOS/Linux: cp .env.example .env
 #    then fill in AI_MODEL_PATH / AI_MODEL_API / API_KEY and the optional keys
 
-# 3. (Optional) start the vector DB and ingest the learning paths
-cd vectordb
-docker compose up -d
-python -m vectorstore.store
-cd ..
+# 3. (Optional) use PGVector instead of the built-in in-memory knowledge base
+docker compose -f vectordb/docker-compose.yml up -d
+python -m vectordb.vectorstore.store      # then set PGVECTOR_CONN in .env
 
 # 4. Run the web UI
 python -m app.server              # open http://localhost:8000
@@ -61,7 +64,8 @@ python main.py                    # add --graph to export graph.png
 | Variable | Purpose |
 |---|---|
 | `AI_MODEL_PATH`, `AI_MODEL_API`, `API_KEY` | Model name, OpenAI-compatible base URL (empty = OpenAI), key |
-| `PGVECTOR_CONN`, `PGVECTOR_COLLECTION` | Vector store used by the **adviser** agent |
+| `PGVECTOR_CONN`, `PGVECTOR_COLLECTION` | Optional PGVector store for the **adviser** agent (default: in-memory) |
+| `APP_PASSWORD`, `RATE_LIMIT_PER_MINUTE` | Access password for the web UI/API and per-client chat limit |
 | `TAVILY_API_KEY` | Enables the **search** agent |
 | `VIRUSTOTAL_API_KEY` | Scans URLs before the **crawl** agent opens them |
 | `REQUIRE_URL_SCAN` | `true` = refuse to crawl when no VirusTotal key is set |
@@ -73,11 +77,21 @@ Agents whose keys are missing still answer with a clear message instead of crash
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/health` | Model name and configured features |
+| `GET` | `/api/health` | Model name, configured features, whether a password is required |
+| `POST` | `/api/login` | `{"password"}` → bearer token (only when `APP_PASSWORD` is set) |
 | `POST` | `/api/chat` | `{"message", "thread_id"}`, Server-Sent Events: `route`, `token`, `final`, `error`, `done` |
 | `GET` | `/api/threads/{id}/messages` | Conversation held in server memory |
 | `DELETE` | `/api/threads/{id}` | Forget a conversation |
 
 Conversation memory uses LangGraph's in-memory checkpointer, so it resets when the server restarts. The browser keeps its own copy of the chat list.
+
+## Tests and deployment
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+Every push runs the tests and a Docker smoke test on GitHub Actions; pushes to `main` deploy to Hugging Face Spaces. Setup steps are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 See [docs/HANDOFF.md](docs/HANDOFF.md) for project status, known issues and next steps.

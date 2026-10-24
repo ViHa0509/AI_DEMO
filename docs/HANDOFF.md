@@ -4,11 +4,12 @@ _Last updated: 2026-10-24_
 
 ## TL;DR
 
-- Branch **`langgraph-ui`** (created from `origin/langgraph`). All changes are **staged, not committed, not pushed**.
+- Branch **`langgraph-ui`** (created from `origin/langgraph`), pushed to `origin`. No PR yet.
 - The `langgraph` branch did not run as it was: every message crashed in the graph, and every crawl crashed in the URL scanner. Both are fixed.
 - Code was split into an `app/` package, and a web UI (FastAPI + plain HTML/CSS/JS, streaming answers) was added.
-- **Action required:** real API keys are still in the git history on `origin`. Rotate them (see [Security](#security)).
-- Verified end to end against a mock LLM only. A real LLM endpoint, PGVector, Tavily and VirusTotal have **not** been tested.
+- **Deployment:** Dockerfile + GitHub Actions (tests → Docker smoke test → deploy to Hugging Face Spaces), password login and rate limiting. No database needed: the knowledge base is in memory. Setup: [DEPLOYMENT.md](DEPLOYMENT.md).
+- **Action required:** real API keys are still in the git history of the **public** GitHub repo. Rotate them (see [Security](#security)).
+- Verified against a mock LLM and fake models only. A real OpenAI key, Tavily and VirusTotal have **not** been tested yet.
 
 ## Current status
 
@@ -18,10 +19,14 @@ _Last updated: 2026-10-24_
 | Web UI (streaming, history, themes, mobile) | ✅ Tested in headless Edge |
 | Terminal chat (`main.py`) | ✅ Tested |
 | Crawl agent + SSRF guard | ✅ Tested on thehackernews.com, example.com, 127.0.0.1 (blocked) |
-| Adviser agent (PGVector RAG) | ⚠️ Not tested: no database was available |
+| Knowledge base loader (Excel → documents) | ✅ Unit-tested; merged cells now handled (378 skills; the AI sheet was previously dropped entirely) |
+| Adviser agent (in-memory RAG) | ⚠️ Embedding not run locally: torch is blocked on this laptop (see below). Covered by the CI Docker build |
+| Adviser agent (PGVector) | ⚠️ Not tested: no database available; now optional |
+| Password login + rate limit | ✅ Unit-tested and driven in the browser |
+| Docker image / deploy | ⚠️ Not built locally (no Docker here). CI builds and smoke-tests it; deploy needs `HF_TOKEN` |
 | Search agent (Tavily) | ⚠️ Not tested: no API key |
 | URL scan (VirusTotal) | ⚠️ Not tested: no API key; rewritten against the v3 API docs |
-| Real LLM | ❌ Not configured: `.env` names `/models/phi-4-mini-instruct` but has no `AI_MODEL_API`, so calls go to api.openai.com and get 401 |
+| Real LLM | ❌ Waiting for the OpenAI key (to be added as GitHub secret `OPENAI_API_KEY`) |
 
 ## How to run
 
@@ -32,19 +37,19 @@ pip install -r requirements.txt
 copy .env.example .env          # set AI_MODEL_API to the server that hosts phi-4-mini, plus API_KEY
 python -m app.server            # http://localhost:8000
 python main.py                  # terminal chat (add --graph to export graph.png)
+pytest -q                       # after: pip install -r requirements-dev.txt
 ```
 
-Vector DB (optional, needed by the adviser agent):
+PGVector (optional; without it the adviser uses the in-memory knowledge base):
 
 ```bash
-cd vectordb
-docker compose up -d            # Postgres+pgvector on 5433, pgAdmin on 8080
-python -m vectorstore.store     # ingest data/LearningPath.xlsx
+docker compose -f vectordb/docker-compose.yml up -d   # Postgres+pgvector on 5433, pgAdmin on 8080
+python -m vectordb.vectorstore.store                  # ingest data/LearningPath.xlsx
 ```
 
 ### Known machine-specific blocker (Windows Application Control)
 
-On the dev laptop used for this work, Windows Application Control blocks the native DLLs of `xxhash`, `ormsgpack`, `jiter` and `msgpack`. LangGraph, LangSmith and the OpenAI SDK import these, so the app fails at import with `DLL load failed ... An Application Control policy has blocked this file`.
+On the dev laptop used for this work, Windows Application Control blocks the native DLLs of `xxhash`, `ormsgpack`, `jiter` and `msgpack` (and very likely torch). LangGraph, LangSmith and the OpenAI SDK import these, so the app fails at import with `DLL load failed ... An Application Control policy has blocked this file`.
 
 - For testing, pure-Python stand-ins were put on `PYTHONPATH` from a temporary folder. They are **not** part of the repo and must not be used in production.
 - Proper fix: ask IT to allow these packages, or run the app in Docker, WSL or on a server.
@@ -64,7 +69,11 @@ START ─► classifier ─┬─► adviser       PGVector learning paths (RAG)
 | `app/config.py` | All settings from `.env` (single `settings` object) |
 | `app/prompt.yaml`, `app/prompts.py` | Prompt templates and loader |
 | `app/llm.py` | Cached `ChatOpenAI` (any OpenAI-compatible endpoint, streaming on) |
-| `app/retriever.py` | Cached PGVector retriever; heavy imports are lazy |
+| `app/knowledge_base.py` | Excel → documents (merged cells handled), embeddings, cached in-memory index |
+| `app/retriever.py` | PGVector if `PGVECTOR_CONN` is set, otherwise the in-memory store |
+| `app/security.py` | `APP_PASSWORD` login with HMAC-signed tokens, per-client rate limiter |
+| `Dockerfile`, `deploy/`, `.github/workflows/ci-cd.yml` | Container, HF Spaces deploy script, CI/CD pipeline |
+| `tests/` | 32 pytest tests, no network (fake LLM) |
 | `app/crawler.py` | Fetch + extraction (Blogger-specific first, then generic), SSRF guard |
 | `app/url_scanner.py` | VirusTotal: cached report first, then submit + poll |
 | `app/graph.py` | `State`, classifier (LLM + keyword fallback), agents, `build_graph()` |
@@ -99,7 +108,7 @@ Removed as unused or duplicated: `vectordb/model/AI_model.py`, the duplicated `f
 - **Leaked keys:** commits on `origin` (e.g. before `0ec2c19` / `f6bd092`) contain a real HuggingFace token (`hf_…`), a Tavily key (`tvly-…`) and a LangSmith key (`lsv2_…`). **Rotate all three.** Deleting them in later commits does not remove them from history. Rewriting history (`git filter-repo`) is optional once they are rotated, and needs agreement from the team because it forces everyone to re-clone.
 - `.env` is now untracked and ignored; `.env.example` is the template.
 - `vectordb/docker-compose.yml` uses default passwords (`postgres`/`postgres`, pgAdmin `admin`). Fine locally, change before any shared deployment.
-- The server binds to `127.0.0.1` by default (`HOST`/`PORT` env vars). There is no authentication, so don't expose it publicly as is.
+- The server binds to `127.0.0.1` by default (`HOST`/`PORT`). For public use set `APP_PASSWORD`; the deploy script refuses a public Space without it.
 
 ## API
 
@@ -112,10 +121,10 @@ Removed as unused or duplicated: `vectordb/model/AI_model.py`, the duplicated `f
 
 ## Suggested next steps
 
-1. Rotate the leaked keys (blocker before sharing the repo further).
-2. Point `AI_MODEL_API` at the phi-4-mini server and run a real conversation through each agent.
-3. Start the vector DB, run ingestion, and validate adviser answers against `LearningPath.xlsx`.
+1. Rotate the leaked keys (blocker: the repo is public).
+2. Follow [DEPLOYMENT.md](DEPLOYMENT.md): add `HF_TOKEN`, `OPENAI_API_KEY`, `APP_PASSWORD` as GitHub secrets, then run the workflow manually on `langgraph-ui`.
+3. Check the first real conversations through each agent, especially adviser answers against `LearningPath.xlsx`.
 4. Add Tavily / VirusTotal keys and test search and crawl with scanning on.
-5. Set `LANGSMITH_TRACING=false` unless a LangSmith key is set (otherwise every request logs auth warnings).
-6. Review and commit `langgraph-ui`, then open a PR into `langgraph` (or `main`).
-7. Later: persistent checkpointer (Postgres), unit tests for `crawler`, `url_scanner` and the classifier fallback, a Dockerfile for the app.
+5. Set `LANGSMITH_TRACING=false` in local `.env` unless a LangSmith key is set (otherwise every request logs auth warnings).
+6. Open a PR `langgraph-ui` → `main`; merging it turns on automatic deploys.
+7. Later: persistent checkpointer (Postgres), tests for `url_scanner`, an OpenAI-embeddings option to drop torch from the image.
